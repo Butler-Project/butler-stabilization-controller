@@ -40,6 +40,9 @@ target_link_libraries(rl_balancer_node onnxruntime)
 install(TARGETS rl_balancer_node
   DESTINATION lib/${PROJECT_NAME})
 
+install(DIRECTORY policy/
+  DESTINATION share/${PROJECT_NAME}/policy)
+
 # Install onnxruntime shared libs alongside the node
 install(DIRECTORY ${ONNXRUNTIME_ROOT}/lib/
   DESTINATION lib
