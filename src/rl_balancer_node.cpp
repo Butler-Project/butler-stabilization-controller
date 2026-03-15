@@ -18,6 +18,11 @@
 #include <rclcpp/rclcpp.hpp>
 #include <onnxruntime_cxx_api.h>
 
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Vector3.h>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include "imu_driver_node/msg/imu_gravity.hpp"
@@ -110,6 +115,24 @@ public:
     // ---------- publisher ----------
     pub_wheel_vel_ = create_publisher<ddsm115_driver::msg::WheelVel>("wheel_vel", 10);
 
+    // ---------- TF: require imu→base_link before starting ----------
+    tf_buffer_   = std::make_shared<tf2_ros::Buffer>(get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
+    this->declare_parameter("tf_timeout_sec", 10.0);
+    double tf_timeout = this->get_parameter("tf_timeout_sec").as_double();
+    RCLCPP_INFO(get_logger(), "Waiting up to %.1fs for imu→base_link TF...", tf_timeout);
+    try {
+      imu_to_base_ = tf_buffer_->lookupTransform(
+          "base_link", "imu",
+          tf2::TimePointZero,
+          tf2::durationFromSec(tf_timeout));
+      RCLCPP_INFO(get_logger(), "imu→base_link TF acquired.");
+    } catch (const tf2::TransformException & e) {
+      RCLCPP_FATAL(get_logger(), "imu→base_link TF not available within %.1fs: %s", tf_timeout, e.what());
+      throw std::runtime_error("Required TF transform imu→base_link not available");
+    }
+
     // ---------- 100 Hz control timer ----------
     timer_ = create_wall_timer(10ms, std::bind(&RLBalancerNode::control_loop, this));
 
@@ -134,10 +157,16 @@ private:
       obs[1] = static_cast<float>(cmd_vel_.linear.y);
       obs[2] = static_cast<float>(cmd_vel_.angular.z);
 
-      // [3..5] projected_gravity (body frame)
-      obs[3] = gravity_.x;
-      obs[4] = gravity_.y;
-      obs[5] = gravity_.z;
+      // [3..5] projected_gravity — rotated from imu frame to base_link via TF
+      {
+        const auto & r = imu_to_base_.transform.rotation;
+        const tf2::Quaternion q(r.x, r.y, r.z, r.w);
+        const tf2::Vector3 g_imu(gravity_.x, gravity_.y, gravity_.z);
+        const tf2::Vector3 g_base = tf2::quatRotate(q, g_imu);
+        obs[3] = static_cast<float>(g_base.x());
+        obs[4] = static_cast<float>(g_base.y());
+        obs[5] = static_cast<float>(g_base.z());
+      }
 
       // [6..8] angular_velocity (gyro, filtered)
       obs[6] = imu_filt_.gx;
@@ -196,6 +225,11 @@ private:
     cmd.right_rpm = right_rpm;
     pub_wheel_vel_->publish(cmd);
   }
+
+  // ---- TF ----
+  std::shared_ptr<tf2_ros::Buffer>            tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+  geometry_msgs::msg::TransformStamped        imu_to_base_;
 
   // ---- ONNX ----
   std::unique_ptr<Ort::Env>     env_;

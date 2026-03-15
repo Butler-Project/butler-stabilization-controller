@@ -13,6 +13,8 @@ find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(ddsm115_driver REQUIRED)
 find_package(imu_driver_node REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 # ONNX Runtime — bundled local copy
 set(ONNXRUNTIME_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime)
@@ -33,6 +35,8 @@ ament_target_dependencies(rl_balancer_node
   geometry_msgs
   ddsm115_driver
   imu_driver_node
+  tf2_ros
+  tf2_geometry_msgs
 )
 
 target_link_libraries(rl_balancer_node onnxruntime)
@@ -42,6 +46,9 @@ install(TARGETS rl_balancer_node
 
 install(DIRECTORY policy/
   DESTINATION share/${PROJECT_NAME}/policy)
+
+install(DIRECTORY launch/
+  DESTINATION share/${PROJECT_NAME}/launch)
 
 # Install onnxruntime shared libs alongside the node
 install(DIRECTORY ${ONNXRUNTIME_ROOT}/lib/
