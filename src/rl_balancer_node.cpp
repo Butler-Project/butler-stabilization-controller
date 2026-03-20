@@ -7,7 +7,7 @@
  *   [6..8]   angular_velocity    — from /imu/filtered (ImuFiltered.gx,gy,gz)
  *   [9..11]  linear_velocity     — from /odom (Odometry twist.linear)
  *   [12..13] wheel_velocity      — from /raw_odom (RPM → rad/s × 0.1)
- *   [14..15] previous_actions    — buffered (raw action / 12.0)
+ *   [14..15] previous_actions    — buffered (raw action ∈ [−1, 1])
  *
  * Action output (2-dim):
  *   Raw actions in [-1, 1] → scaled to [-12, 12] rad/s
@@ -46,7 +46,6 @@ static constexpr double RAD_S_TO_RPM = 60.0 / (2.0 * M_PI);
 // Policy constants
 static constexpr double ACTION_SCALE = 12.0;          // maps [-1,1] → [-12,12] rad/s
 static constexpr double WHEEL_VEL_OBS_SCALE = 0.1;    // policy sees rad/s * 0.1
-static constexpr double PREV_ACTION_OBS_SCALE = 1.0 / 12.0;
 static constexpr int    OBS_DIM = 16;
 static constexpr int    ACT_DIM = 2;
 
@@ -157,21 +156,30 @@ private:
       obs[1] = static_cast<float>(cmd_vel_.linear.y);
       obs[2] = static_cast<float>(cmd_vel_.angular.z);
 
-      // [3..5] projected_gravity — rotated from imu frame to base_link via TF
+      // Build TF rotation once — reused for gravity and angular velocity
+      const auto & r = imu_to_base_.transform.rotation;
+      const tf2::Quaternion q_imu_to_base(r.x, r.y, r.z, r.w);
+
+      // [3..5] projected_gravity — rotate from imu to base_link, then negate.
+      // EKF outputs the "up" direction in imu frame; policy expects gravity direction
+      // (= down = negative of up) matching eval_fast.py: obs[3..5] = -(gx,gy,gz).
+      // Result: (0, 0, -1) when balanced upright.
       {
-        const auto & r = imu_to_base_.transform.rotation;
-        const tf2::Quaternion q(r.x, r.y, r.z, r.w);
-        const tf2::Vector3 g_imu(gravity_.x, gravity_.y, gravity_.z);
-        const tf2::Vector3 g_base = tf2::quatRotate(q, g_imu);
-        obs[3] = static_cast<float>(g_base.x());
-        obs[4] = static_cast<float>(g_base.y());
-        obs[5] = static_cast<float>(g_base.z());
+        const tf2::Vector3 up_imu(gravity_.x, gravity_.y, gravity_.z);
+        const tf2::Vector3 gravity_base = -tf2::quatRotate(q_imu_to_base, up_imu);
+        obs[3] = static_cast<float>(gravity_base.x());
+        obs[4] = static_cast<float>(gravity_base.y());
+        obs[5] = static_cast<float>(gravity_base.z());
       }
 
-      // [6..8] angular_velocity (gyro, filtered)
-      obs[6] = imu_filt_.gx;
-      obs[7] = imu_filt_.gy;
-      obs[8] = imu_filt_.gz;
+      // [6..8] angular_velocity — rotate from imu frame to base_link frame
+      {
+        const tf2::Vector3 omega_imu(imu_filt_.gx, imu_filt_.gy, imu_filt_.gz);
+        const tf2::Vector3 omega_base = tf2::quatRotate(q_imu_to_base, omega_imu);
+        obs[6] = static_cast<float>(omega_base.x());
+        obs[7] = static_cast<float>(omega_base.y());
+        obs[8] = static_cast<float>(omega_base.z());
+      }
 
       // [9..11] linear_velocity from odometry
       if (has_odom_) {
@@ -186,7 +194,7 @@ private:
         obs[13] = static_cast<float>(raw_odom_.right_actual_rpm * RPM_TO_RAD_S * WHEEL_VEL_OBS_SCALE);
       }
 
-      // [14..15] previous actions (normalised by 1/12)
+      // [14..15] previous actions (raw ∈ [−1, 1])
       obs[14] = prev_actions_[0];
       obs[15] = prev_actions_[1];
     }
@@ -209,9 +217,10 @@ private:
     float act_left  = std::clamp(action_data[0], -1.0f, 1.0f);
     float act_right = std::clamp(action_data[1], -1.0f, 1.0f);
 
-    // Store normalised previous actions for next frame
-    prev_actions_[0] = act_left  * static_cast<float>(PREV_ACTION_OBS_SCALE * ACTION_SCALE);
-    prev_actions_[1] = act_right * static_cast<float>(PREV_ACTION_OBS_SCALE * ACTION_SCALE);
+    // Store raw actions — training obs[14:15] = raw policy output ∈ [−1, 1]
+    // (environment.py: get_actions() returns velocities, scale=1/12 normalises back to raw action)
+    prev_actions_[0] = act_left;
+    prev_actions_[1] = act_right;
 
     // Scale to rad/s, then to RPM
     double left_rad_s  = act_left  * ACTION_SCALE;
