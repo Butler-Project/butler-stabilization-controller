@@ -51,8 +51,8 @@ static constexpr int    ACT_DIM = 2;
 
 class RLBalancerNode : public rclcpp::Node {
 public:
-  RLBalancerNode()
-  : Node("rl_balancer_node")
+  explicit RLBalancerNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
+  : Node("rl_balancer_node", options)
   {
     // ---------- parameters ----------
     this->declare_parameter("model_path", "");
@@ -229,10 +229,10 @@ private:
     int16_t right_rpm  = static_cast<int16_t>(std::round(right_rad_s * RAD_S_TO_RPM));
 
     // ---- Publish ----
-    ddsm115_driver::msg::WheelVel cmd;
-    cmd.left_rpm  = left_rpm;
-    cmd.right_rpm = right_rpm;
-    pub_wheel_vel_->publish(cmd);
+    auto cmd = std::make_unique<ddsm115_driver::msg::WheelVel>();
+    cmd->left_rpm  = left_rpm;
+    cmd->right_rpm = right_rpm;
+    pub_wheel_vel_->publish(std::move(cmd));
   }
 
   // ---- TF ----
@@ -270,6 +270,10 @@ private:
   std::array<float, 2> prev_actions_ = {0.0f, 0.0f};
 };
 
+#include <rclcpp_components/register_node_macro.hpp>
+RCLCPP_COMPONENTS_REGISTER_NODE(RLBalancerNode)
+
+#ifndef COMPONENT_ONLY
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
   auto node = std::make_shared<RLBalancerNode>();
@@ -277,3 +281,4 @@ int main(int argc, char** argv) {
   rclcpp::shutdown();
   return 0;
 }
+#endif
