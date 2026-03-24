@@ -229,10 +229,11 @@ private:
     int16_t right_rpm  = static_cast<int16_t>(std::round(right_rad_s * RAD_S_TO_RPM));
 
     // ---- Publish ----
-    auto cmd = std::make_unique<ddsm115_driver::msg::WheelVel>();
-    cmd->left_rpm  = left_rpm;
-    cmd->right_rpm = right_rpm;
-    pub_wheel_vel_->publish(std::move(cmd));
+    // auto cmd = std::make_unique<ddsm115_driver::msg::WheelVel>();
+    ddsm115_driver::msg::WheelVel cmd;
+    cmd.left_rpm  = left_rpm;
+    cmd.right_rpm = right_rpm;
+    pub_wheel_vel_->publish(cmd);
   }
 
   // ---- TF ----
