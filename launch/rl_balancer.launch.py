@@ -7,7 +7,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     model_path_arg = DeclareLaunchArgument(
         'model_path',
-        default_value='',
+        default_value='/home/radxa/projects/robot_ws/src/rl_balancer_node/policy/brob27_05_2026.onnx',
         description='Absolute path to the ONNX policy model file'
     )
 

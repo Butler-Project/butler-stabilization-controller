@@ -13,9 +13,15 @@ find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(ddsm115_driver REQUIRED)
-find_package(imu_driver_node REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/BalancerStatus.msg"
+  DEPENDENCIES std_msgs
+)
 
 # ONNX Runtime — bundled local copy
 set(ONNXRUNTIME_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime)
@@ -27,7 +33,7 @@ set(NODE_DEPS
   nav_msgs
   geometry_msgs
   ddsm115_driver
-  imu_driver_node
+  std_msgs
   tf2_ros
   tf2_geometry_msgs
 )
@@ -42,17 +48,20 @@ target_include_directories(rl_balancer_node_component PUBLIC
 target_link_directories(rl_balancer_node_component PUBLIC ${ONNXRUNTIME_ROOT}/lib)
 ament_target_dependencies(rl_balancer_node_component ${NODE_DEPS})
 target_link_libraries(rl_balancer_node_component onnxruntime)
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
+target_link_libraries(rl_balancer_node_component "${cpp_typesupport_target}")
 rclcpp_components_register_nodes(rl_balancer_node_component "RLBalancerNode")
 
-# Standalone executable
-add_executable(rl_balancer_node src/rl_balancer_node.cpp)
-target_include_directories(rl_balancer_node PUBLIC
+# Standalone executable (target renamed to avoid clash with rosidl utility target)
+add_executable(rl_balancer_node_exec src/rl_balancer_node.cpp)
+set_target_properties(rl_balancer_node_exec PROPERTIES OUTPUT_NAME rl_balancer_node)
+target_include_directories(rl_balancer_node_exec PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
   ${ONNXRUNTIME_ROOT}/include)
-target_link_directories(rl_balancer_node PUBLIC ${ONNXRUNTIME_ROOT}/lib)
-ament_target_dependencies(rl_balancer_node ${NODE_DEPS})
-target_link_libraries(rl_balancer_node onnxruntime)
+target_link_directories(rl_balancer_node_exec PUBLIC ${ONNXRUNTIME_ROOT}/lib)
+ament_target_dependencies(rl_balancer_node_exec ${NODE_DEPS})
+target_link_libraries(rl_balancer_node_exec onnxruntime "${cpp_typesupport_target}")
 
 install(TARGETS rl_balancer_node_component
   ARCHIVE DESTINATION lib
@@ -60,7 +69,7 @@ install(TARGETS rl_balancer_node_component
   RUNTIME DESTINATION bin
 )
 
-install(TARGETS rl_balancer_node
+install(TARGETS rl_balancer_node_exec
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY policy/
